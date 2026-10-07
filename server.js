@@ -20,7 +20,7 @@ if (missing.length) {
 const app = express();
 app.set('trust proxy', 1);
 
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5500').split(',').map((s) => s.trim().replace(/\/$/, ''));
+const allowedOrigins = (process.env.FRONTEND_URL || 'https://www.darazify.site/').split(',').map((s) => s.trim().replace(/\/$/, ''));
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({
