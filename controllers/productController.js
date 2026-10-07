@@ -1,4 +1,4 @@
-const sanitizeHtml = require('sanitize-html');
+const sanitizeHtml = require("sanitize-html");
 const Product = require('../models/Product');
 const { uploadBuffer, deleteImage } = require('../config/cloudinary');
 const { AppError, asyncHandler, sendSuccess } = require('../utils/apiResponse');
