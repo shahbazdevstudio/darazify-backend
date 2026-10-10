@@ -1,6 +1,5 @@
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
-const Product = require('../models/Product');
 const User = require('../models/User');
 const { resolveItem } = require('../utils/itemResolver');
 const { sendOrderWhatsApp } = require('../utils/whatsappMessage');
@@ -8,23 +7,26 @@ const { AppError, asyncHandler, sendSuccess } = require('../utils/apiResponse');
 
 const DELIVERY_MSG = 'Please complete your delivery information before placing your order.';
 
-/** Atomically reserves stock for product lines; rolls back everything if any line fails. */
+const { MODELS } = require('../utils/itemResolver');
+const stockLines = (lines) => lines.filter((x) => MODELS[x.itemType]);
+
+/** Atomically reserves stock for product/software lines; rolls back everything if any line fails. */
 const reserveStock = async (lines) => {
   const done = [];
   try {
-    for (const l of lines.filter((x) => x.itemType === 'product')) {
-      const r = await Product.updateOne({ _id: l.product, stock: { $gte: l.quantity } }, { $inc: { stock: -l.quantity } });
+    for (const l of stockLines(lines)) {
+      const r = await MODELS[l.itemType].updateOne({ _id: l[l.itemType], stock: { $gte: l.quantity } }, { $inc: { stock: -l.quantity } });
       if (!r.modifiedCount) throw new AppError(`"${l.name}" just went out of stock`, 409);
       done.push(l);
     }
   } catch (err) {
-    await Promise.all(done.map((l) => Product.updateOne({ _id: l.product }, { $inc: { stock: l.quantity } })));
+    await Promise.all(done.map((l) => MODELS[l.itemType].updateOne({ _id: l[l.itemType] }, { $inc: { stock: l.quantity } })));
     throw err;
   }
 };
 
 const restock = (order) =>
-  Promise.all(order.items.filter((i) => i.itemType === 'product' && i.product).map((i) => Product.updateOne({ _id: i.product }, { $inc: { stock: i.quantity } })));
+  Promise.all(order.items.filter((i) => MODELS[i.itemType] && i[i.itemType]).map((i) => MODELS[i.itemType].updateOne({ _id: i[i.itemType] }, { $inc: { stock: i.quantity } })));
 
 exports.createOrder = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
@@ -69,7 +71,7 @@ exports.createOrder = asyncHandler(async (req, res) => {
       statusHistory: [{ status: 'Pending' }],
     });
   } catch (err) {
-    await Promise.all(lines.filter((l) => l.itemType === 'product').map((l) => Product.updateOne({ _id: l.product }, { $inc: { stock: l.quantity } })));
+    await Promise.all(stockLines(lines).map((l) => MODELS[l.itemType].updateOne({ _id: l[l.itemType] }, { $inc: { stock: l.quantity } })));
     throw err;
   }
 

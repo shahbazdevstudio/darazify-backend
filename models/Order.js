@@ -7,9 +7,10 @@ const Counter = mongoose.models.Counter || mongoose.model('Counter', new mongoos
 
 const orderItemSchema = new mongoose.Schema(
   {
-    itemType: { type: String, enum: ['product', 'game'], required: true },
+    itemType: { type: String, enum: ['product', 'game', 'software'], required: true },
     itemId: { type: String, required: true },
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    software: { type: mongoose.Schema.Types.ObjectId, ref: 'Software' },
     name: { type: String, required: true },
     image: { type: String, default: '' },
     price: { type: Number, required: true },

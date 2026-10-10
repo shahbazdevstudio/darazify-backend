@@ -2,6 +2,8 @@ const User = require('../models/User');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Cart = require('../models/Cart');
+const Game = require('../models/Game');
+const Software = require('../models/Software');
 const { STATUSES } = require('../models/Order');
 const { AppError, asyncHandler, sendSuccess } = require('../utils/apiResponse');
 const { restock } = require('./orderController');
@@ -19,10 +21,12 @@ exports.getStats = asyncHandler(async (_req, res) => {
   since.setDate(since.getDate() - 13);
   since.setHours(0, 0, 0, 0);
 
-  const [totalUsers, blockedUsers, totalProducts, totalOrders, byStatus, revenueAgg, daily, recentOrders, lowStock] = await Promise.all([
+  const [totalUsers, blockedUsers, totalProducts, totalSoftware, totalGames, totalOrders, byStatus, revenueAgg, daily, recentOrders, lowStock] = await Promise.all([
     User.countDocuments({ role: 'user' }),
     User.countDocuments({ role: 'user', isBlocked: true }),
     Product.countDocuments(),
+    Software.countDocuments(),
+    Game.countDocuments(),
     Order.countDocuments(),
     Order.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
     Order.aggregate([{ $match: { status: { $ne: 'Cancelled' } } }, { $group: { _id: null, total: { $sum: '$total' } } }]),
@@ -48,7 +52,7 @@ exports.getStats = asyncHandler(async (_req, res) => {
   }
 
   sendSuccess(res, {
-    totalUsers, blockedUsers, totalProducts, totalOrders, statusCounts,
+    totalUsers, blockedUsers, totalProducts, totalSoftware, totalGames, totalOrders, statusCounts,
     revenue: revenueAgg[0]?.total || 0,
     daily: series, recentOrders, lowStock,
   });

@@ -16,16 +16,16 @@ const loginWith = async (req, res, requiredRole) => {
 
   user.lastLoginAt = new Date();
   await user.save({ validateBeforeSave: false });
-  attachToken(res, user);
-  return sendSuccess(res, { user }, 'Logged in successfully');
+  const token = attachToken(res, user);
+  return sendSuccess(res, { user, token }, 'Logged in successfully');
 };
 
 exports.register = asyncHandler(async (req, res) => {
   const { name, email, password } = req.body;
   if (await User.findOne({ email: String(email).toLowerCase() })) throw new AppError('An account with this email already exists', 409);
   const user = await User.create({ name, email, password });
-  attachToken(res, user);
-  sendSuccess(res, { user }, 'Account created successfully', 201);
+  const token = attachToken(res, user);
+  sendSuccess(res, { user, token }, 'Account created successfully', 201);
 });
 
 exports.login = asyncHandler((req, res) => loginWith(req, res, 'user'));

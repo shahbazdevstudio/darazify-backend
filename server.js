@@ -50,12 +50,25 @@ app.use(
 // =========================
 // CORS
 // =========================
-// Allow requests from any origin.
-// This prevents frontend URL / Vercel domain CORS blocking.
+// Allowed frontends come from FRONTEND_URL (comma separated, trailing slashes ignored).
+// During local development any localhost / 127.0.0.1 port is also allowed.
+
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((url) => url.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const isLocalOrigin = (origin) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
 
 app.use(
   cors({
-    origin: true,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true); // curl, server-to-server
+      const clean = origin.replace(/\/+$/, '');
+      if (allowedOrigins.includes(clean) || (!isProduction && isLocalOrigin(clean))) return callback(null, true);
+      return callback(null, false); // browser blocks it
+    },
     credentials: true,
   })
 );
@@ -157,6 +170,8 @@ app.use('/api/users', require('./routes/userRoutes'));
 
 app.use('/api/products', require('./routes/productRoutes'));
 
+app.use('/api/software', require('./routes/softwareRoutes'));
+
 app.use('/api/games', require('./routes/gameRoutes'));
 
 app.use('/api/search', require('./routes/searchRoutes'));
@@ -189,7 +204,7 @@ connectDB()
   .then(() => {
     app.listen(PORT, () => {
       console.log(
-        `Darazify API listening on port ${ PORT } `
+        `Darazify API listening on http://localhost:${ PORT }`
       );
     });
   })

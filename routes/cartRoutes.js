@@ -5,7 +5,7 @@ const { protect } = require('../middleware/authMiddleware');
 const c = require('../controllers/cartController');
 
 const item = [
-  body('itemType').isIn(['product', 'game']).withMessage('Invalid item type'),
+  body('itemType').isIn(['product', 'game', 'software']).withMessage('Invalid item type'),
   body('itemId').notEmpty().withMessage('Item is required'),
 ];
 
