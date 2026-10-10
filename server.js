@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 
 const express = require('express');
@@ -20,12 +21,15 @@ const {
 
 const required = ['MONGODB_URI', 'JWT_SECRET'];
 
-const missing = required.filter((key) => !process.env[key]);
+const missing = required.filter(
+  (key) => !process.env[key]
+);
 
 if (missing.length) {
   console.error(
     `Missing required environment variables: ${missing.join(', ')}`
   );
+
   process.exit(1);
 }
 
@@ -38,58 +42,62 @@ const app = express();
 app.set('trust proxy', 1);
 
 // =========================
-// Security Headers
-// =========================
-
-app.use(
-  helmet({
-    crossOriginResourcePolicy: {
-      policy: 'cross-origin',
-    },
-  })
-);
-
-// =========================
 // CORS Configuration
 // =========================
 
-// Add your actual frontend domains to FRONTEND_URL
-// in the backend environment variables.
+// Set FRONTEND_URL in Vercel to your deployed frontend URL(s).
 // Multiple origins can be comma-separated.
 
-const allowedOrigins = (process.env.FRONTEND_URL || '')
+const configuredOrigins = (
+  process.env.FRONTEND_URL || ''
+)
   .split(',')
   .map((url) => url.trim().replace(/\/+$/, ''))
   .filter(Boolean);
 
-const isLocalOrigin = (origin) =>
-  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+// Local development origins.
+// Keep these only while local testing is required.
+
+const localOrigins = [
+  'http://localhost:5500',
+  'http://127.0.0.1:5500',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+
+const isProduction =
+  process.env.NODE_ENV === 'production' ||
+  Boolean(process.env.VERCEL);
+
+const allowedOrigins = [
+  ...new Set([
+    ...configuredOrigins,
+    ...(!isProduction ? localOrigins : []),
+    // Explicit local testing access to the deployed API:
+    ...(process.env.ALLOW_LOCAL_FRONTEND === 'true'
+      ? localOrigins
+      : []),
+  ]),
+];
 
 const corsOptions = {
   origin(origin, callback) {
-    // Allow requests without an Origin header, such as server-to-server.
+    // Requests without an Origin header, such as curl.
     if (!origin) {
       return callback(null, true);
     }
 
-    const cleanOrigin = origin.replace(/\/+$/, '');
+    const normalizedOrigin = origin.replace(/\/+$/, '');
 
-    // Permit explicitly configured frontend domains.
-    if (allowedOrigins.includes(cleanOrigin)) {
+    if (allowedOrigins.includes(normalizedOrigin)) {
       return callback(null, true);
     }
 
-    // Permit localhost only outside production.
-    if (
-      process.env.NODE_ENV !== 'production' &&
-      !process.env.VERCEL &&
-      isLocalOrigin(cleanOrigin)
-    ) {
-      return callback(null, true);
-    }
+    console.warn('CORS blocked origin:', normalizedOrigin);
 
-    // Reject unknown origins.
-    return callback(new Error('Origin not allowed by CORS'));
+    return callback(
+      new Error(`Origin not allowed by CORS: ${normalizedOrigin}`)
+    );
   },
 
   credentials: true,
@@ -110,15 +118,30 @@ const corsOptions = {
   ],
 
   optionsSuccessStatus: 204,
+  maxAge: 86400,
 };
 
+// CORS must run before security middleware and API routes.
+// This middleware also handles browser OPTIONS preflight requests.
 app.use(cors(corsOptions));
+
+// =========================
+// Security
+// =========================
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: {
+      policy: 'cross-origin',
+    },
+  })
+);
 
 // =========================
 // Logging
 // =========================
 
-if (process.env.NODE_ENV !== 'production') {
+if (!isProduction) {
   app.use(morgan('dev'));
 }
 
@@ -126,11 +149,7 @@ if (process.env.NODE_ENV !== 'production') {
 // Body Parsers
 // =========================
 
-app.use(
-  express.json({
-    limit: '1mb',
-  })
-);
+app.use(express.json({ limit: '1mb' }));
 
 app.use(
   express.urlencoded({
@@ -228,18 +247,26 @@ app.use(notFound);
 app.use(errorHandler);
 
 // =========================
-// Server
+// Export / Local Server
 // =========================
 
-const PORT = process.env.PORT || 5000;
+// Exporting the app is useful for a Vercel function entry point.
+module.exports = app;
 
-connectDB()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Darazify API listening on port ${PORT}`);
+// Start a local server only when running this file directly.
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+
+  connectDB()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(
+          `Darazify API listening on http://localhost:${PORT}`
+        );
+      });
+    })
+    .catch((error) => {
+      console.error('Failed to start server:', error.message);
+      process.exit(1);
     });
-  })
-  .catch((error) => {
-    console.error('Failed to start server:', error.message);
-    process.exit(1);
-  });
+}
