@@ -9,7 +9,10 @@ const mongoSanitize = require('express-mongo-sanitize');
 const rateLimit = require('express-rate-limit');
 
 const connectDB = require('./config/db');
-const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+const {
+  notFound,
+  errorHandler,
+} = require('./middleware/errorMiddleware');
 
 // =========================
 // Environment Variables
@@ -21,9 +24,8 @@ const missing = required.filter((key) => !process.env[key]);
 
 if (missing.length) {
   console.error(
-    `Missing required environment variables: ${ missing.join(', ') } `
+    `Missing required environment variables: ${missing.join(', ')}`
   );
-
   process.exit(1);
 }
 
@@ -36,7 +38,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 // =========================
-// Security
+// Security Headers
 // =========================
 
 app.use(
@@ -48,30 +50,69 @@ app.use(
 );
 
 // =========================
-// CORS
+// CORS Configuration
 // =========================
-// Allowed frontends come from FRONTEND_URL (comma separated, trailing slashes ignored).
-// During local development any localhost / 127.0.0.1 port is also allowed.
+
+// Add your actual frontend domains to FRONTEND_URL
+// in the backend environment variables.
+// Multiple origins can be comma-separated.
 
 const allowedOrigins = (process.env.FRONTEND_URL || '')
   .split(',')
   .map((url) => url.trim().replace(/\/+$/, ''))
   .filter(Boolean);
 
-const isLocalOrigin = (origin) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
+const isLocalOrigin = (origin) =>
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // curl, server-to-server
-      const clean = origin.replace(/\/+$/, '');
-      if (allowedOrigins.includes(clean) || (!isProduction && isLocalOrigin(clean))) return callback(null, true);
-      return callback(null, false); // browser blocks it
-    },
-    credentials: true,
-  })
-);
+const corsOptions = {
+  origin(origin, callback) {
+    // Allow requests without an Origin header, such as server-to-server.
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    const cleanOrigin = origin.replace(/\/+$/, '');
+
+    // Permit explicitly configured frontend domains.
+    if (allowedOrigins.includes(cleanOrigin)) {
+      return callback(null, true);
+    }
+
+    // Permit localhost only outside production.
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      !process.env.VERCEL &&
+      isLocalOrigin(cleanOrigin)
+    ) {
+      return callback(null, true);
+    }
+
+    // Reject unknown origins.
+    return callback(new Error('Origin not allowed by CORS'));
+  },
+
+  credentials: true,
+
+  methods: [
+    'GET',
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+    'OPTIONS',
+  ],
+
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+  ],
+
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
 
 // =========================
 // Logging
@@ -165,21 +206,13 @@ app.get('/api/health', (_req, res) => {
 // =========================
 
 app.use('/api/auth', require('./routes/authRoutes'));
-
 app.use('/api/users', require('./routes/userRoutes'));
-
 app.use('/api/products', require('./routes/productRoutes'));
-
 app.use('/api/software', require('./routes/softwareRoutes'));
-
 app.use('/api/games', require('./routes/gameRoutes'));
-
 app.use('/api/search', require('./routes/searchRoutes'));
-
 app.use('/api/cart', require('./routes/cartRoutes'));
-
 app.use('/api/orders', require('./routes/orderRoutes'));
-
 app.use('/api/admin', require('./routes/adminRoutes'));
 
 // =========================
@@ -203,16 +236,10 @@ const PORT = process.env.PORT || 5000;
 connectDB()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(
-        `Darazify API listening on http://localhost:${ PORT }`
-      );
+      console.log(`Darazify API listening on port ${PORT}`);
     });
   })
   .catch((error) => {
-    console.error(
-      'Failed to start server:',
-      error.message
-    );
-
+    console.error('Failed to start server:', error.message);
     process.exit(1);
   });
