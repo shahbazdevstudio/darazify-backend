@@ -6,7 +6,9 @@ const GAME_PRICE = () => Number(process.env.GAME_PRICE) || 250;
 const TTL = 5 * 60 * 1000;
 const cache = new Map();
 
-const rawgFetch = async (path, params = {}) => {
+const { pcOnly } = require('./gameMatch');
+
+const rawgFetch = async (path, params = {}, timeout = 12000) => {
   const base = (process.env.GAMES_API_URL || 'https://api.rawg.io/api').replace(/\/$/, '');
   const url = new URL(`${base}${path}`);
   url.searchParams.set('key', process.env.GAMES_API_KEY || '');
@@ -18,7 +20,7 @@ const rawgFetch = async (path, params = {}) => {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.t < TTL) return hit.data;
 
-  const res = await fetch(key, { signal: AbortSignal.timeout(12000) });
+  const res = await fetch(key, { signal: AbortSignal.timeout(timeout) });
   if (!res.ok) {
     const err = new Error(`Games API responded with ${res.status}`);
     err.statusCode = res.status === 404 ? 404 : 502;
@@ -40,24 +42,24 @@ const normalizeGame = (g) => ({
   ratingsCount: g.ratings_count || 0,
   metacritic: g.metacritic || null,
   released: g.released || null,
-  platforms: (g.platforms || []).map((p) => p.platform?.name).filter(Boolean),
+  platforms: pcOnly((g.platforms || []).map((p) => p.platform?.name).filter(Boolean)), // PC only
   genres: (g.genres || []).map((x) => x.name),
   price: GAME_PRICE(),
 });
 
 const platformParam = () => process.env.GAMES_PLATFORMS || '4';
 
-const listGames = async ({ page = 1, pageSize = 16, search, ordering, genres, dates } = {}) => {
+const listGames = async ({ page = 1, pageSize = 16, search, ordering, genres, dates, precise = true, timeout } = {}) => {
   const data = await rawgFetch('/games', {
     platforms: platformParam(),
     page,
     page_size: pageSize,
     search,
-    search_precise: search ? 'true' : undefined,
+    search_precise: search && precise ? 'true' : undefined,
     ordering,
     genres,
     dates,
-  });
+  }, timeout);
   return { count: data.count || 0, results: (data.results || []).map(normalizeGame) };
 };
 

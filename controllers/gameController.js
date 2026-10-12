@@ -1,5 +1,6 @@
 const Game = require('../models/Game');
 const { getGame: getRawgGame, getScreenshots, GAME_PRICE } = require('../utils/rawg');
+const { pcOnly } = require('../utils/gameMatch');
 const { AppError, asyncHandler, sendSuccess } = require('../utils/apiResponse');
 
 const MAX_PAGES = 100;
@@ -16,9 +17,9 @@ const toPublic = (g) => ({
   ratingsCount: g.ratingsCount || 0,
   metacritic: g.metacritic || null,
   released: g.released || null,
-  platforms: g.platforms || [],
+  platforms: pcOnly(g.platforms), // PC only (no Xbox / PlayStation ...)
   genres: g.genres || [],
-  price: GAME_PRICE(),
+  price: g.price ?? GAME_PRICE(), // the price the admin set for this game, otherwise the default
 });
 
 const SORTS = {
@@ -37,11 +38,12 @@ exports.getGames = asyncHandler(async (req, res) => {
   const filter = { isActive: true };
   if (type === 'latest') filter.isLatest = true;
   if (type === 'popular') filter.isPopular = true;
+  if (type === 'hero') filter.isHero = true; // the (max 3) games chosen for the home page banner
   if (search) filter.name = new RegExp(escapeRegex(String(search).slice(0, 80)), 'i');
   if (genres) filter.genreSlugs = String(genres);
 
   let sort = SORTS[ordering];
-  if (!sort) sort = type === 'latest' ? SORTS['-released'] : type === 'popular' ? SORTS['-added'] : { createdAt: -1 };
+  if (!sort) sort = type === 'latest' ? SORTS['-released'] : type === 'popular' ? SORTS['-added'] : type === 'hero' ? { heroAt: 1 } : { createdAt: -1 };
 
   const [docs, total] = await Promise.all([
     Game.find(filter).sort(sort).skip((page - 1) * pageSize).limit(pageSize).lean(),

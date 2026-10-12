@@ -30,6 +30,7 @@ router.get('/software/:id', adminView, software.getItem);
 router.get('/games/search', games.searchCatalogue);
 router.get('/games/catalogue', games.browseCatalogue);
 router.get('/games', games.listStoreGames);
+router.post('/games/import', games.importGames);
 router.post('/games', [body('rawgId').notEmpty().withMessage('Choose a game from the suggestions')], validate, games.addGame);
 router.patch('/games/:id', games.updateGame);
 router.delete('/games/:id', games.deleteGame);

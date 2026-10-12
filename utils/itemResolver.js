@@ -37,7 +37,7 @@ const resolveItem = async ({ itemType, itemId, quantity = 1 }) => {
   if (itemType === 'game') {
     const g = await Game.findOne({ rawgId: String(itemId), isActive: true });
     if (!g) throw new AppError('This game is no longer available', 404);
-    return { itemType: 'game', itemId: g.rawgId, name: g.name, image: g.image || '', price: GAME_PRICE(), quantity: qty };
+    return { itemType: 'game', itemId: g.rawgId, name: g.name, image: g.image || '', price: g.price ?? GAME_PRICE(), quantity: qty };
   }
 
   throw new AppError('Invalid item type', 400);
