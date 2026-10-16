@@ -7,6 +7,9 @@ const admin = require('../controllers/adminController');
 const products = require('../controllers/productController');
 const software = require('../controllers/softwareController');
 const games = require('../controllers/adminGameController');
+const series = require('../controllers/seriesController');
+const gameRequests = require('../controllers/gameRequestController');
+const upload = require('../middleware/upload');
 
 router.use(adminProtect);
 
@@ -31,9 +34,23 @@ router.get('/games/search', games.searchCatalogue);
 router.get('/games/catalogue', games.browseCatalogue);
 router.get('/games', games.listStoreGames);
 router.post('/games/import', games.importGames);
+router.post('/games/custom', upload.array('images', 8), games.createCustom);
+router.get('/games/:id', games.getStoreGame);
+router.put('/games/:id/custom', upload.array('images', 8), games.updateCustom);
 router.post('/games', [body('rawgId').notEmpty().withMessage('Choose a game from the suggestions')], validate, games.addGame);
 router.patch('/games/:id', games.updateGame);
 router.delete('/games/:id', games.deleteGame);
+
+// Game series (playlists shown under the home banner)
+router.get('/series', series.listAdmin);
+router.post('/series', upload.single('image'), series.create);
+router.patch('/series/:id', upload.single('image'), series.update);
+router.delete('/series/:id', series.remove);
+
+// Game requests sent by visitors
+router.get('/game-requests', gameRequests.list);
+router.patch('/game-requests/:id', gameRequests.setStatus);
+router.delete('/game-requests/:id', gameRequests.remove);
 
 router.get('/orders', admin.getOrders);
 router.get('/orders/:id', admin.getOrder);

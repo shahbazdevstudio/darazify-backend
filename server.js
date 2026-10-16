@@ -179,6 +179,10 @@ app.use('/api/software', require('./routes/softwareRoutes'));
 
 app.use('/api/games', require('./routes/gameRoutes'));
 
+app.use('/api/series', require('./routes/seriesRoutes'));
+
+app.use('/api/game-requests', require('./routes/gameRequestRoutes'));
+
 app.use('/api/search', require('./routes/searchRoutes'));
 
 app.use('/api/cart', require('./routes/cartRoutes'));

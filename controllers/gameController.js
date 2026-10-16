@@ -1,9 +1,10 @@
 const Game = require('../models/Game');
+const Series = require('../models/Series');
 const { getGame: getRawgGame, getScreenshots, GAME_PRICE } = require('../utils/rawg');
+const SHOT_TIMEOUT = 4000;
 const { pcOnly } = require('../utils/gameMatch');
 const { AppError, asyncHandler, sendSuccess } = require('../utils/apiResponse');
 
-const MAX_PAGES = 100;
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const slugify = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
@@ -13,6 +14,7 @@ const toPublic = (g) => ({
   name: g.name,
   slug: g.slug,
   image: g.image || null,
+  image2: (g.screenshots && g.screenshots[0]) || null, // shown when hovering the card
   rating: g.rating || 0,
   ratingsCount: g.ratingsCount || 0,
   metacritic: g.metacritic || null,
@@ -41,6 +43,11 @@ exports.getGames = asyncHandler(async (req, res) => {
   if (type === 'hero') filter.isHero = true; // the (max 3) games chosen for the home page banner
   if (search) filter.name = new RegExp(escapeRegex(String(search).slice(0, 80)), 'i');
   if (genres) filter.genreSlugs = String(genres);
+  if (req.query.series) {
+    const s = await Series.findOne({ slug: String(req.query.series), isActive: true }).select('_id').lean();
+    filter.series = s ? s._id : null; // unknown series -> no games
+    if (!s) filter._id = null;
+  }
 
   let sort = SORTS[ordering];
   if (!sort) sort = type === 'latest' ? SORTS['-released'] : type === 'popular' ? SORTS['-added'] : type === 'hero' ? { heroAt: 1 } : { createdAt: -1 };
@@ -50,9 +57,23 @@ exports.getGames = asyncHandler(async (req, res) => {
     Game.countDocuments(filter),
   ]);
 
+  // Older games were saved without screenshots: fetch them once (hover image) and store them.
+  const missing = docs.filter((d) => !d.isCustom && !d.screenshotsFetched);
+  if (missing.length) {
+    await Promise.race([
+      Promise.allSettled(missing.map(async (d) => {
+        const shots = await getScreenshots(d.rawgId);
+        d.screenshots = shots.slice(0, 4);
+        d.screenshotsFetched = true;
+        await Game.updateOne({ _id: d._id }, { $set: { screenshots: d.screenshots, screenshotsFetched: true } });
+      })),
+      new Promise((resolve) => setTimeout(resolve, SHOT_TIMEOUT)),
+    ]);
+  }
+
   sendSuccess(res, {
     games: docs.map(toPublic),
-    pagination: { page, pageSize, total, totalPages: Math.min(MAX_PAGES, Math.ceil(total / pageSize)) },
+    pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
   });
 });
 
@@ -62,6 +83,13 @@ exports.getGame = asyncHandler(async (req, res) => {
   if (!stored) throw new AppError('Game not found', 404);
 
   const game = toPublic(stored);
+  if (stored.isCustom) { // custom games carry all their details; nothing to fetch from RAWG
+    Object.assign(game, {
+      description: stored.description, developers: stored.developers || [], publishers: stored.publishers || [],
+      esrb: stored.esrb || null, screenshots: stored.screenshots || [],
+    });
+    return sendSuccess(res, { game });
+  }
   const [detail, shots] = await Promise.allSettled([getRawgGame(stored.rawgId), getScreenshots(stored.rawgId)]);
   if (detail.status === 'fulfilled') {
     const d = detail.value;

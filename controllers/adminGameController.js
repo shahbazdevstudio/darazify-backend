@@ -1,7 +1,9 @@
 const Game = require('../models/Game');
+const Series = require('../models/Series');
 const { listGames, getGame: getRawgGame } = require('../utils/rawg');
 const { normKey, pickBest, mapLimit } = require('../utils/gameMatch');
 const { slugify } = require('./gameController');
+const { uploadBuffer, deleteImage } = require('../config/cloudinary');
 const { AppError, asyncHandler, sendSuccess } = require('../utils/apiResponse');
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -134,6 +136,12 @@ exports.updateGame = asyncHandler(async (req, res) => {
     game.isHero = on;
   }
 
+  if (req.body.series !== undefined) {
+    if (!req.body.series) game.series = null;
+    else if (await Series.exists({ _id: req.body.series })) game.series = req.body.series;
+    else throw new AppError('Series not found', 404);
+  }
+
   ['isPopular', 'isLatest', 'isActive'].forEach((k) => { if (req.body[k] !== undefined) game[k] = toBool(req.body[k]); });
   await game.save();
   sendSuccess(res, { game }, 'Game updated');
@@ -142,6 +150,7 @@ exports.updateGame = asyncHandler(async (req, res) => {
 exports.deleteGame = asyncHandler(async (req, res) => {
   const game = await Game.findById(req.params.id);
   if (!game) throw new AppError('Game not found', 404);
+  if (game.isCustom) await Promise.all(ownImages(game).map(pidOf).filter(Boolean).map(deleteImage));
   await game.deleteOne();
   sendSuccess(res, {}, 'Game removed from the store');
 });
@@ -189,4 +198,110 @@ exports.importGames = asyncHandler(async (req, res) => {
   if (!list.length) throw new AppError('No game names received', 400);
   const results = await mapLimit(list, 5, importOne);
   sendSuccess(res, { results });
+});
+
+/* ------------------------- Custom (admin-made) games ------------------------- */
+const MAX_IMAGES = 7; // cover + up to 6 more shown in the gallery
+const ownImages = (g) => [g.image, ...(g.screenshots || [])].filter((u) => u && u.includes('/darazify/games/'));
+/** Cloudinary public id from its URL: .../upload/v123/darazify/games/abc.png -> darazify/games/abc */
+const pidOf = (url) => (String(url).match(/\/(darazify\/games\/[^./]+)/) || [])[1];
+const list = (v, max = 10) => [...new Set(String(v || '').split(',').map((s) => s.trim().slice(0, 40)).filter(Boolean))].slice(0, max);
+
+/** Validates the form fields shared by create and edit. Returns the clean values. */
+const customFields = (b) => {
+  const name = String(b.name || '').replace(/\s+/g, ' ').trim();
+  if (name.length < 2 || name.length > 120) throw new AppError('Game name must be 2 to 120 characters', 422);
+
+  const released = String(b.released || '').trim();
+  if (released && (!/^\d{4}-\d{2}-\d{2}$/.test(released) || Number.isNaN(Date.parse(released)))) throw new AppError('Enter a valid release date', 422);
+
+  const rating = b.rating === '' || b.rating === undefined ? 0 : Number(b.rating);
+  if (!Number.isFinite(rating) || rating < 0 || rating > 5) throw new AppError('Rating must be between 0 and 5', 422);
+
+  const meta = b.metacritic === '' || b.metacritic === undefined ? null : Number(b.metacritic);
+  if (meta !== null && (!Number.isInteger(meta) || meta < 0 || meta > 100)) throw new AppError('Metacritic score must be a whole number from 0 to 100', 422);
+
+  const description = String(b.description || '').trim();
+  if (description.length > 6000) throw new AppError('The description is too long (max 6000 characters)', 422);
+  const genres = list(b.genres);
+  return {
+    name, released, rating: Math.round(rating * 10) / 10, metacritic: meta, description, genres,
+    genreSlugs: genres.map(slugify), developers: list(b.developers, 5), publishers: list(b.publishers, 5),
+    esrb: String(b.esrb || '').trim().slice(0, 30), price: parsePrice(b.price), nameKey: normKey(name),
+  };
+};
+
+const resolveSeries = async (v) => {
+  if (!v) return null;
+  if (!(await Series.exists({ _id: v }))) throw new AppError('Series not found', 404);
+  return v;
+};
+
+const uploadAll = async (files) => {
+  const done = [];
+  try {
+    for (const f of files) done.push((await uploadBuffer(f.buffer, 'darazify/games')).url); // in order, so the cover stays first
+    return done;
+  } catch {
+    await Promise.all(done.map(pidOf).filter(Boolean).map(deleteImage));
+    throw new AppError('Image upload failed. Please try again.', 502);
+  }
+};
+
+const heroCheck = async (wantsHero, selfId) => {
+  if (wantsHero && (await Game.countDocuments({ isHero: true, _id: { $ne: selfId } })) >= HERO_MAX) throw new AppError(`The home banner already has ${HERO_MAX} games. Turn one off first.`, 409);
+};
+
+exports.getStoreGame = asyncHandler(async (req, res) => {
+  const game = await Game.findById(req.params.id).lean();
+  if (!game) throw new AppError('Game not found', 404);
+  sendSuccess(res, { game });
+});
+
+exports.createCustom = asyncHandler(async (req, res) => {
+  const f = customFields(req.body);
+  const files = req.files || [];
+  if (!files.length) throw new AppError('Add at least one image (the first one is the cover)', 422);
+  if (files.length > MAX_IMAGES) throw new AppError(`Maximum ${MAX_IMAGES} images`, 422);
+  if (await Game.findOne({ nameKey: f.nameKey, isCustom: true }).select('_id').lean()) throw new AppError('You already created a game with this name', 409);
+
+  const wantsHero = toBool(req.body.isHero);
+  await heroCheck(wantsHero);
+  const series = await resolveSeries(req.body.series);
+  const urls = await uploadAll(files);
+
+  const game = await Game.create({
+    ...f, series, rawgId: `custom-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    slug: slugify(f.name), image: urls[0], screenshots: urls.slice(1), screenshotsFetched: true, platforms: ['PC'], isCustom: true,
+    isPopular: toBool(req.body.isPopular), isLatest: toBool(req.body.isLatest), isHero: wantsHero, heroAt: wantsHero ? new Date() : null,
+    isActive: req.body.isActive === undefined ? true : toBool(req.body.isActive),
+  });
+  sendSuccess(res, { game }, 'Game created', 201);
+});
+
+exports.updateCustom = asyncHandler(async (req, res) => {
+  const game = await Game.findById(req.params.id);
+  if (!game || !game.isCustom) throw new AppError('Custom game not found', 404);
+  const f = customFields(req.body);
+  if (await Game.findOne({ nameKey: f.nameKey, isCustom: true, _id: { $ne: game._id } }).select('_id').lean()) throw new AppError('You already created a game with this name', 409);
+
+  const current = [game.image, ...(game.screenshots || [])].filter(Boolean);
+  const remove = new Set([].concat(req.body.removeImages || []).filter((u) => current.includes(u)));
+  const kept = current.filter((u) => !remove.has(u));
+  const files = req.files || [];
+  if (kept.length + files.length < 1) throw new AppError('A game needs at least one image', 422);
+  if (kept.length + files.length > MAX_IMAGES) throw new AppError(`Maximum ${MAX_IMAGES} images`, 422);
+
+  const wantsHero = toBool(req.body.isHero);
+  if (wantsHero && !game.isHero) await heroCheck(true, game._id);
+  const series = await resolveSeries(req.body.series);
+  const all = [...kept, ...(await uploadAll(files))];
+
+  Object.assign(game, f, { slug: slugify(f.name), series, image: all[0], screenshots: all.slice(1), isPopular: toBool(req.body.isPopular), isLatest: toBool(req.body.isLatest), isActive: toBool(req.body.isActive) });
+  if (wantsHero !== game.isHero) game.heroAt = wantsHero ? new Date() : null;
+  game.isHero = wantsHero;
+  await game.save();
+
+  await Promise.all([...remove].filter((u) => u.includes('/darazify/games/')).map(pidOf).filter(Boolean).map(deleteImage));
+  sendSuccess(res, { game }, 'Game updated');
 });
