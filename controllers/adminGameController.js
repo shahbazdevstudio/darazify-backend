@@ -143,6 +143,8 @@ exports.updateGame = asyncHandler(async (req, res) => {
   }
 
   ['isPopular', 'isLatest', 'isActive'].forEach((k) => { if (req.body[k] !== undefined) game[k] = toBool(req.body[k]); });
+  if (!game.isPopular) game.pinPopular = null; // leaving a list drops its manual rank
+  if (!game.isHero) game.pinHero = null;
   await game.save();
   sendSuccess(res, { game }, 'Game updated');
 });
@@ -300,6 +302,8 @@ exports.updateCustom = asyncHandler(async (req, res) => {
   Object.assign(game, f, { slug: slugify(f.name), series, image: all[0], screenshots: all.slice(1), isPopular: toBool(req.body.isPopular), isLatest: toBool(req.body.isLatest), isActive: toBool(req.body.isActive) });
   if (wantsHero !== game.isHero) game.heroAt = wantsHero ? new Date() : null;
   game.isHero = wantsHero;
+  if (!game.isPopular) game.pinPopular = null;
+  if (!game.isHero) game.pinHero = null;
   await game.save();
 
   await Promise.all([...remove].filter((u) => u.includes('/darazify/games/')).map(pidOf).filter(Boolean).map(deleteImage));

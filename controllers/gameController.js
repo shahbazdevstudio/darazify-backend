@@ -3,6 +3,7 @@ const Series = require('../models/Series');
 const { getGame: getRawgGame, getScreenshots, GAME_PRICE } = require('../utils/rawg');
 const SHOT_TIMEOUT = 4000;
 const { pcOnly } = require('../utils/gameMatch');
+const { RANK_LISTS, effectiveSort } = require('../utils/ranking');
 const { AppError, asyncHandler, sendSuccess } = require('../utils/apiResponse');
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -49,8 +50,9 @@ exports.getGames = asyncHandler(async (req, res) => {
     if (!s) filter._id = null;
   }
 
-  let sort = SORTS[ordering];
-  if (!sort) sort = type === 'latest' ? SORTS['-released'] : type === 'popular' ? SORTS['-added'] : type === 'hero' ? { heroAt: 1 } : { createdAt: -1 };
+  // A sort the visitor picked wins. Otherwise: the admin's manual ranking first, then the default order.
+  let sort = SORTS[ordering] && { ...SORTS[ordering], _id: 1 };
+  if (!sort) sort = type === 'latest' ? { ...SORTS['-released'], _id: 1 } : effectiveSort(RANK_LISTS[type] || RANK_LISTS.all);
 
   const [docs, total] = await Promise.all([
     Game.find(filter).sort(sort).skip((page - 1) * pageSize).limit(pageSize).lean(),

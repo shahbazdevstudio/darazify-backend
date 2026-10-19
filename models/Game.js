@@ -29,6 +29,10 @@ const gameSchema = new mongoose.Schema(
     developers: [String],
     publishers: [String],
     esrb: { type: String, default: '' },
+    // Manual ranking (see utils/ranking.js). null = not ranked, follows the default order.
+    pinHero: { type: Number, default: null },
+    pinPopular: { type: Number, default: null },
+    pinAll: { type: Number, default: null, index: true },
     isHero: { type: Boolean, default: false, index: true }, // shown in the home page hero banner (max 3)
     heroAt: { type: Date, default: null },
     isPopular: { type: Boolean, default: false, index: true },
@@ -39,5 +43,8 @@ const gameSchema = new mongoose.Schema(
 );
 
 gameSchema.index({ name: 'text' });
+// Serve the ranked lists (see utils/ranking.js effectiveSort) straight from an index
+gameSchema.index({ isActive: 1, pinAll: -1, createdAt: -1, _id: 1 });
+gameSchema.index({ isActive: 1, isPopular: 1, pinPopular: -1, ratingsCount: -1, createdAt: -1, _id: 1 });
 
 module.exports = mongoose.model('Game', gameSchema);

@@ -9,9 +9,11 @@ const software = require('../controllers/softwareController');
 const games = require('../controllers/adminGameController');
 const series = require('../controllers/seriesController');
 const gameRequests = require('../controllers/gameRequestController');
+const ranking = require('../controllers/gameRankingController');
 const upload = require('../middleware/upload');
 
 router.use(adminProtect);
+router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); }); // admin data must always be fresh (rankings, lists)
 
 router.get('/stats', admin.getStats);
 
@@ -33,6 +35,12 @@ router.get('/software/:id', adminView, software.getItem);
 router.get('/games/search', games.searchCatalogue);
 router.get('/games/catalogue', games.browseCatalogue);
 router.get('/games', games.listStoreGames);
+// Manual ranking of the hero / popular / all games lists
+router.get('/games/ranking/:list', ranking.list);
+router.delete('/games/ranking/:list', ranking.reset);
+router.put('/games/ranking/:list/:id', ranking.move);
+router.delete('/games/ranking/:list/:id', ranking.unpin);
+
 router.post('/games/import', games.importGames);
 router.post('/games/custom', upload.array('images', 8), games.createCustom);
 router.get('/games/:id', games.getStoreGame);
