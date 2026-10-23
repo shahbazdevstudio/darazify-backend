@@ -25,14 +25,15 @@ const cleanName = (v) => {
 /* ------------------------------- Public ------------------------------- */
 exports.listPublic = asyncHandler(async (_req, res) => {
   const [list, counts] = await Promise.all([Series.find({ isActive: true }).sort({ createdAt: 1 }).lean(), countGames({ isActive: true })]);
-  const series = list.filter((s) => counts.get(String(s._id))).map((s) => ({ id: s._id, name: s.name, slug: s.slug, image: s.image.url, count: counts.get(String(s._id)) }));
+  const series = list.filter((s) => counts.get(String(s._id))).map((s) => ({ id: s._id, name: s.name, slug: s.slug, count: counts.get(String(s._id)) }));
   sendSuccess(res, { series });
 });
 
 exports.getPublic = asyncHandler(async (req, res) => {
   const s = await Series.findOne({ slug: String(req.params.slug), isActive: true }).lean();
   if (!s) throw new AppError('Series not found', 404);
-  sendSuccess(res, { series: { id: s._id, name: s.name, slug: s.slug, image: s.image.url } });
+  const count = await Game.countDocuments({ series: s._id, isActive: true });
+  sendSuccess(res, { series: { id: s._id, name: s.name, slug: s.slug, count } });
 });
 
 /* -------------------------------- Admin -------------------------------- */
@@ -43,9 +44,7 @@ exports.listAdmin = asyncHandler(async (_req, res) => {
 
 exports.create = asyncHandler(async (req, res) => {
   const name = cleanName(req.body.name);
-  if (!req.file) throw new AppError('Upload a PNG logo for the series', 422);
-  const img = await uploadBuffer(req.file.buffer, 'darazify/series');
-  const series = await Series.create({ name, slug: await uniqueSlug(name), image: { url: img.url, publicId: img.publicId } });
+  const series = await Series.create({ name, slug: await uniqueSlug(name) });
   sendSuccess(res, { series }, 'Series created', 201);
 });
 
@@ -55,7 +54,7 @@ exports.update = asyncHandler(async (req, res) => {
   if (req.body.name !== undefined && cleanName(req.body.name) !== s.name) { s.name = cleanName(req.body.name); s.slug = await uniqueSlug(s.name, s._id); }
   if (req.body.isActive !== undefined) s.isActive = req.body.isActive === true || req.body.isActive === 'true';
   if (req.file) {
-    const old = s.image.publicId;
+    const old = s.image?.publicId;
     const img = await uploadBuffer(req.file.buffer, 'darazify/series');
     s.image = { url: img.url, publicId: img.publicId };
     if (old) deleteImage(old);
@@ -68,7 +67,7 @@ exports.remove = asyncHandler(async (req, res) => {
   const s = await Series.findById(req.params.id);
   if (!s) throw new AppError('Series not found', 404);
   await Game.updateMany({ series: s._id }, { $set: { series: null } }); // the games stay in the store
-  if (s.image.publicId) deleteImage(s.image.publicId);
+  if (s.image?.publicId) deleteImage(s.image.publicId);
   await s.deleteOne();
   sendSuccess(res, {}, 'Series deleted');
 });
