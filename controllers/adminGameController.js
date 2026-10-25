@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Game = require('../models/Game');
 const Series = require('../models/Series');
 const { listGames, getGame: getRawgGame } = require('../utils/rawg');
@@ -138,7 +139,7 @@ exports.updateGame = asyncHandler(async (req, res) => {
 
   if (req.body.series !== undefined) {
     if (!req.body.series) game.series = null;
-    else if (await Series.exists({ _id: req.body.series })) game.series = req.body.series;
+    else if (mongoose.isValidObjectId(req.body.series) && (await Series.exists({ _id: req.body.series }))) game.series = req.body.series;
     else throw new AppError('Series not found', 404);
   }
 
@@ -235,7 +236,7 @@ const customFields = (b) => {
 
 const resolveSeries = async (v) => {
   if (!v) return null;
-  if (!(await Series.exists({ _id: v }))) throw new AppError('Series not found', 404);
+  if (!mongoose.isValidObjectId(v) || !(await Series.exists({ _id: v }))) throw new AppError('Series not found', 404);
   return v;
 };
 

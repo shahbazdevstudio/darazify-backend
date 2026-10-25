@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Series = require('../models/Series');
 const Game = require('../models/Game');
 const { uploadBuffer, deleteImage } = require('../config/cloudinary');
@@ -24,8 +25,20 @@ const cleanName = (v) => {
 
 /* ------------------------------- Public ------------------------------- */
 exports.listPublic = asyncHandler(async (_req, res) => {
+  res.set('Cache-Control', 'no-cache'); // a new series / cover must show up right away
   const [list, counts] = await Promise.all([Series.find({ isActive: true }).sort({ createdAt: 1 }).lean(), countGames({ isActive: true })]);
-  const series = list.filter((s) => counts.get(String(s._id))).map((s) => ({ id: s._id, name: s.name, slug: s.slug, count: counts.get(String(s._id)) }));
+  const visible = list.filter((s) => counts.get(String(s._id)) || s.image?.url); // has games, or an uploaded cover
+  // Fallback cover: the image of the series' first game, used when no cover was uploaded for the series
+  const covers = new Map();
+  if (visible.length) {
+    const games = await Game.find({ series: { $in: visible.map((s) => s._id) }, isActive: true, image: { $ne: '' } })
+      .sort({ ratingsCount: -1, createdAt: -1, _id: 1 }).select('image series').lean();
+    games.forEach((g) => { if (!covers.has(String(g.series))) covers.set(String(g.series), g.image); });
+  }
+  const series = visible.map((s) => ({
+    id: s._id, name: s.name, slug: s.slug, count: counts.get(String(s._id)) || 0,
+    image: s.image?.url || covers.get(String(s._id)) || '',
+  }));
   sendSuccess(res, { series });
 });
 
@@ -44,11 +57,13 @@ exports.listAdmin = asyncHandler(async (_req, res) => {
 
 exports.create = asyncHandler(async (req, res) => {
   const name = cleanName(req.body.name);
-  const series = await Series.create({ name, slug: await uniqueSlug(name) });
+  const img = req.file ? await uploadBuffer(req.file.buffer, 'darazify/series') : null;
+  const series = await Series.create({ name, slug: await uniqueSlug(name), ...(img ? { image: { url: img.url, publicId: img.publicId } } : {}) });
   sendSuccess(res, { series }, 'Series created', 201);
 });
 
 exports.update = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new AppError('Series not found', 404);
   const s = await Series.findById(req.params.id);
   if (!s) throw new AppError('Series not found', 404);
   if (req.body.name !== undefined && cleanName(req.body.name) !== s.name) { s.name = cleanName(req.body.name); s.slug = await uniqueSlug(s.name, s._id); }
@@ -64,6 +79,7 @@ exports.update = asyncHandler(async (req, res) => {
 });
 
 exports.remove = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new AppError('Series not found', 404);
   const s = await Series.findById(req.params.id);
   if (!s) throw new AppError('Series not found', 404);
   await Game.updateMany({ series: s._id }, { $set: { series: null } }); // the games stay in the store
