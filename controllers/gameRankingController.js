@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Game = require('../models/Game');
 const { RANK_LISTS, pinOf, effectiveSort } = require('../utils/ranking');
+const { normKey } = require('../utils/gameMatch');
 const { AppError, asyncHandler, sendSuccess } = require('../utils/apiResponse');
 
 const MAX_POSITION = 2000;
@@ -18,6 +19,34 @@ exports.list = asyncHandler(async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const q = query(list);
+  const search = String(req.query.search || '').trim().slice(0, 80);
+  if (search) {
+    // Search inside this ranking list. Matching ignores case, accents, symbols (TEKKEN™ 8 = tekken 8)
+    // and every typed word must appear in the name, so "forza horizon" finds all Forza Horizon games.
+    // Every match keeps its REAL position in the full list, so moving it from the results
+    // behaves exactly like moving it from the normal list.
+    const words = normKey(search).split(' ').filter(Boolean);
+    const compact = words.join('');
+    const isMatch = (name) => {
+      const key = normKey(name);
+      return words.every((w) => key.includes(w)) || key.replace(/ /g, '').includes(compact);
+    };
+    const [all, pinnedCount, everyone] = await Promise.all([
+      Game.find(q).sort(effectiveSort(list)).select(`name image rawgId isCustom ${list.field}`).lean(),
+      Game.countDocuments({ ...q, [list.field]: { $ne: null } }),
+      Game.find({ isActive: true }).select('_id name').lean(),
+    ]);
+    const matches = [];
+    const inList = new Set();
+    all.forEach((g, i) => {
+      inList.add(String(g._id));
+      if (words.length && isMatch(g.name)) matches.push({ _id: g._id, id: g.rawgId, name: g.name, image: g.image || null, isCustom: !!g.isCustom, position: i + 1, pinned: g[list.field] != null });
+    });
+    // Games with this name that exist in the store but are not part of this list (e.g. not in the banner)
+    const elsewhere = words.length ? everyone.filter((g) => !inList.has(String(g._id)) && isMatch(g.name)).length : 0;
+    const shown = matches.slice(0, 50);
+    return sendSuccess(res, { games: shown, pinned: pinnedCount, search: true, elsewhere, pagination: { page: 1, limit: 50, total: all.length, totalPages: 1, matches: matches.length } });
+  }
   const [docs, total, pinned] = await Promise.all([
     Game.find(q).sort(effectiveSort(list)).skip((page - 1) * limit).limit(limit).select(`name image rawgId isCustom ${list.field}`).lean(),
     Game.countDocuments(q),
