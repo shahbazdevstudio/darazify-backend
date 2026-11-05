@@ -52,7 +52,7 @@ exports.getGames = asyncHandler(async (req, res) => {
 
   // A sort the visitor picked wins. Otherwise: the admin's manual ranking first, then the default order.
   let sort = SORTS[ordering] && { ...SORTS[ordering], _id: 1 };
-  if (!sort) sort = type === 'latest' ? { ...SORTS['-released'], _id: 1 } : effectiveSort(RANK_LISTS[type] || RANK_LISTS.all);
+  if (!sort) sort = effectiveSort(RANK_LISTS[type] || RANK_LISTS.all);
 
   const [docs, total] = await Promise.all([
     Game.find(filter).sort(sort).skip((page - 1) * pageSize).limit(pageSize).lean(),

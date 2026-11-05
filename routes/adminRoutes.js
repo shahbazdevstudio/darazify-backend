@@ -35,7 +35,7 @@ router.get('/software/:id', adminView, software.getItem);
 router.get('/games/search', games.searchCatalogue);
 router.get('/games/catalogue', games.browseCatalogue);
 router.get('/games', games.listStoreGames);
-// Manual ranking of the hero / popular / all games lists
+// Manual ranking of the hero / popular / latest / all games lists
 router.get('/games/ranking/:list', ranking.list);
 router.delete('/games/ranking/:list', ranking.reset);
 router.put('/games/ranking/:list/:id', ranking.move);

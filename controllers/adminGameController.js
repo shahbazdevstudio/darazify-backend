@@ -113,7 +113,7 @@ exports.addGame = asyncHandler(async (req, res) => {
 
   const game = await Game.create({
     ...snapshot(g), price,
-    isPopular: toBool(req.body.isPopular), isLatest: toBool(req.body.isLatest),
+    isPopular: toBool(req.body.isPopular), isLatest: toBool(req.body.isLatest), latestAt: toBool(req.body.isLatest) ? new Date() : null,
     isHero: wantsHero, heroAt: wantsHero ? new Date() : null, isActive: true,
   });
   sendSuccess(res, { game }, 'Game added to the store', 201);
@@ -143,7 +143,10 @@ exports.updateGame = asyncHandler(async (req, res) => {
     else throw new AppError('Series not found', 404);
   }
 
+  const wasLatest = game.isLatest;
   ['isPopular', 'isLatest', 'isActive'].forEach((k) => { if (req.body[k] !== undefined) game[k] = toBool(req.body[k]); });
+  if (game.isLatest && !wasLatest) game.latestAt = new Date(); // newly switched on: it shows first, until the admin ranks it
+  if (!game.isLatest) { game.latestAt = null; game.pinLatest = null; }
   if (!game.isPopular) game.pinPopular = null; // leaving a list drops its manual rank
   if (!game.isHero) game.pinHero = null;
   await game.save();
@@ -276,7 +279,7 @@ exports.createCustom = asyncHandler(async (req, res) => {
   const game = await Game.create({
     ...f, series, rawgId: `custom-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     slug: slugify(f.name), image: urls[0], screenshots: urls.slice(1), screenshotsFetched: true, platforms: ['PC'], isCustom: true,
-    isPopular: toBool(req.body.isPopular), isLatest: toBool(req.body.isLatest), isHero: wantsHero, heroAt: wantsHero ? new Date() : null,
+    isPopular: toBool(req.body.isPopular), isLatest: toBool(req.body.isLatest), latestAt: toBool(req.body.isLatest) ? new Date() : null, isHero: wantsHero, heroAt: wantsHero ? new Date() : null,
     isActive: req.body.isActive === undefined ? true : toBool(req.body.isActive),
   });
   sendSuccess(res, { game }, 'Game created', 201);
@@ -300,9 +303,12 @@ exports.updateCustom = asyncHandler(async (req, res) => {
   const series = await resolveSeries(req.body.series);
   const all = [...kept, ...(await uploadAll(files))];
 
+  const wasLatest = game.isLatest;
   Object.assign(game, f, { slug: slugify(f.name), series, image: all[0], screenshots: all.slice(1), isPopular: toBool(req.body.isPopular), isLatest: toBool(req.body.isLatest), isActive: toBool(req.body.isActive) });
   if (wantsHero !== game.isHero) game.heroAt = wantsHero ? new Date() : null;
   game.isHero = wantsHero;
+  if (game.isLatest && !wasLatest) game.latestAt = new Date();
+  if (!game.isLatest) { game.latestAt = null; game.pinLatest = null; }
   if (!game.isPopular) game.pinPopular = null;
   if (!game.isHero) game.pinHero = null;
   await game.save();

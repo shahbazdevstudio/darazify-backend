@@ -1,5 +1,5 @@
 /**
- * Manual ranking for the three game lists: the home banner (hero), Popular games and All games.
+ * Manual ranking for the four game lists: the home banner (hero), Popular games, Latest games and All games.
  *
  * A ranked game stores a "pin" instead of a position: pin = PIN_TOP - position.
  * Sorting by pin DESCENDING puts ranked games first (position 1 first) and every game
@@ -11,6 +11,8 @@ const PIN_TOP = 1000000;
 const RANK_LISTS = {
   hero: { field: 'pinHero', base: { isHero: true }, order: { heroAt: 1 } },
   popular: { field: 'pinPopular', base: { isPopular: true }, order: { ratingsCount: -1, createdAt: -1 } },
+  // Latest games: the admin's manual order first; then the games switched on most recently; then newest release
+  latest: { field: 'pinLatest', base: { isLatest: true }, order: { latestAt: -1, released: -1, createdAt: -1 } },
   all: { field: 'pinAll', base: {}, order: { createdAt: -1 } },
 };
 
